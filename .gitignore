@@ -1,0 +1,13 @@
+.build/
+build/
+private/
+*.xcuserstate
+xcuserdata/
+.DS_Store
+*.peperete
+*.sqlite*
+.env*
+!/.env.example
+__pycache__/
+*.pyc
+
