@@ -70,6 +70,28 @@ in the public repository. `private/`, app databases, exports with a `.peperete` 
 and build output are ignored. Arbitrary `.json` exports outside `private/` are not ignored;
 store private exports in `private/` or outside the repository.
 
+## Gemini Notebook documentation
+
+Each board can publish one live Markdown source into a folder synchronized by
+Google Drive. Open the book button beside the board title, choose the Drive
+folder and enter the destination notebook name. Peperete rewrites the same file
+after every change and records an append-only activity history, so the notebook
+stays useful without creating one source per card.
+
+Use **Prepare link in Gemini** once. It opens Gemini and copies an instruction
+for the official Gemini Notebook connected app to attach the Drive file to the
+specified personal notebook. In the EEA, connect Gemini Notebook manually in
+Gemini's Connected Apps settings first. Peperete never stores a Google password
+or OAuth token. After the source is attached, Drive/Notebook handles subsequent
+refreshes; Peperete remains the authoritative copy.
+
+The same configuration is available to local automation:
+
+```sh
+.build/release/peperete documentation BOARD_ID "/path/in/Google Drive" "Notebook name" "https://notebook.google.com/..."
+.build/release/peperete publish
+```
+
 ## Local assistant interface
 
 ```sh

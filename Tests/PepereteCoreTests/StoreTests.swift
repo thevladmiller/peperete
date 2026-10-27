@@ -64,4 +64,37 @@ final class StoreTests: XCTestCase {
         db.cards = [Card(columnID: c, title: "Done", completed: true), Card(columnID: c, title: "Archived", archived: true), Card(columnID: c, title: "Later"), Card(columnID: c, title: "Due", due: .distantPast)]
         XCTAssertEqual(db.upcoming.map(\.title), ["Due", "Later"])
     }
+    func testOldDatabaseWithoutDocumentationOrActivitiesStillDecodes() throws {
+        let json = #"{"schemaVersion":1,"revision":0,"boards":[{"id":"b","title":"Old"}],"columns":[],"cards":[]}"#
+        let db = try Store.decoder().decode(Database.self, from: Data(json.utf8))
+        XCTAssertNil(db.boards[0].documentation)
+        XCTAssertTrue(db.activityLog.isEmpty)
+    }
+    func testChangesCreateReadableActivityHistory() throws {
+        let store = try temporaryStore()
+        let ids = try store.update { db -> (String, String, String) in
+            let board = db.addBoard(title: "Work"), columns = db.columns(in: db.boards.last!.id)
+            let card = Card(columnID: columns[0].id, title: "Draft")
+            db.cards.append(card); return (board.id, card.id, columns[1].id)
+        }
+        try store.update { db in try db.move(cardID: ids.1, to: ids.2); db.cards[0].completed = true }
+        let summaries = try store.read().activityLog.map(\.summary)
+        XCTAssertTrue(summaries.contains(where: { $0.contains("Added card") }))
+        XCTAssertTrue(summaries.contains(where: { $0.contains("Moved") }))
+        XCTAssertTrue(summaries.contains(where: { $0.contains("Completed") }))
+    }
+    func testDocumentationPublisherWritesBoardSnapshot() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("Peperete-docs-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var db = Database(); let board = db.addBoard(title: "Millco")
+        let index = db.boards.firstIndex(where: { $0.id == board.id })!
+        db.boards[index].documentation = BoardDocumentation(folderPath: folder.path, fileName: "Millco.md", notebookName: "Millco")
+        db.cards.append(Card(columnID: db.columns(in: board.id)[0].id, title: "Prepare proposal", notes: "Use the approved scope"))
+        let publications = DocumentationPublisher.publish(db)
+        XCTAssertNil(publications.first?.error)
+        let markdown = try String(contentsOf: folder.appendingPathComponent("Millco.md"), encoding: .utf8)
+        XCTAssertTrue(markdown.contains("# Millco"))
+        XCTAssertTrue(markdown.contains("Prepare proposal"))
+        XCTAssertTrue(markdown.contains("Use the approved scope"))
+    }
 }

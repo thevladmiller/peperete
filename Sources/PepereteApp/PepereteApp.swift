@@ -10,11 +10,18 @@ import PepereteCore
 @MainActor @Observable final class BoardModel {
     var database = Database()
     var error: String?
+    var publications: [String: DocumentationPublisher.Publication] = [:]
     let store = Store()
     init() { reload() }
     func reload() {
-        do { let value = try store.read(); if database != value { database = value } }
+        do {
+            let value = try store.read()
+            if database != value { database = value; publishDocumentation() }
+        }
         catch { self.error = error.localizedDescription }
+    }
+    func publishDocumentation() {
+        publications = Dictionary(uniqueKeysWithValues: DocumentationPublisher.publish(database).map { ($0.boardID, $0) })
     }
     func change(_ mutation: (inout Database) throws -> Void) {
         do { try store.update(mutation); reload(); WidgetCenter.shared.reloadAllTimelines() }
@@ -60,6 +67,7 @@ struct BoardView: View {
     @State private var editing: Card?
     @State private var newBoard = false
     @State private var newColumn = false
+    @State private var documenting: Board?
     @State private var name = ""
     private let timer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
     private var current: Board? { model.database.boards.first { $0.id == selection } ?? model.database.boards.first }
@@ -106,6 +114,8 @@ struct BoardView: View {
                                 .font(.subheadline).foregroundStyle(.secondary)
                         }
                         Spacer()
+                        Button { documenting = board } label: { Image(systemName: "book.pages") }
+                            .help("Notebook documentation")
                         Toggle(isOn: $archived) { Image(systemName: "archivebox") }.toggleStyle(.button).help("Show archived cards")
                         Button { name = ""; newColumn = true } label: { Label("Column", systemImage: "plus") }
                     }.padding(28)
@@ -136,6 +146,7 @@ struct BoardView: View {
         }
         .preferredColorScheme(.light)
         .sheet(item: $editing) { card in CardEditor(model: model, draft: card) }
+        .sheet(item: $documenting) { board in DocumentationSettings(model: model, board: board) }
         .alert("New board", isPresented: $newBoard) {
             TextField("Board name", text: $name)
             Button("Create") { model.change { _ = $0.addBoard(title: name.trimmingCharacters(in: .whitespacesAndNewlines)) }; selection = model.database.boards.last?.id }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -214,6 +225,114 @@ struct BoardView: View {
             Button { editing = Card(columnID: column.id, title: "", position: (model.database.cards(in: column.id).last?.position ?? -1) + 1) } label: { Label("Add card", systemImage: "plus").frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.plain).foregroundStyle(.secondary).padding(5)
         }.frame(width: 270).frame(maxHeight: .infinity)
             .contentShape(Rectangle()).dropDestination(for: String.self) { ids, _ in move(ids, to: column) }
+    }
+}
+
+struct DocumentationSettings: View {
+    @Bindable var model: BoardModel
+    let board: Board
+    @Environment(\.dismiss) private var dismiss
+    @State private var enabled: Bool
+    @State private var folderPath: String
+    @State private var fileName: String
+    @State private var notebookName: String
+    @State private var notebookURL: String
+
+    init(model: BoardModel, board: Board) {
+        self.model = model; self.board = board
+        let settings = board.documentation
+        _enabled = State(initialValue: settings?.enabled ?? true)
+        _folderPath = State(initialValue: settings?.folderPath ?? "")
+        _fileName = State(initialValue: settings?.fileName ?? DocumentationPublisher.suggestedFileName(for: board))
+        _notebookName = State(initialValue: settings?.notebookName ?? board.title)
+        _notebookURL = State(initialValue: settings?.notebookURL ?? "")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Notebook documentation").font(.title2.bold())
+                    Text(board.title).foregroundStyle(.secondary)
+                }
+                Spacer(); Button("Done") { save(); dismiss() }.keyboardShortcut(.defaultAction)
+            }
+            Toggle("Keep a live documentation source for this board", isOn: $enabled)
+            GroupBox("Google Drive source") {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        TextField("Choose a folder in Google Drive", text: $folderPath)
+                        Button("Choose…", action: chooseFolder)
+                    }
+                    TextField("Source file name", text: $fileName)
+                    Text("Peperete writes one Markdown source here after every board change. Select a folder synchronized by Google Drive.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }.padding(8)
+            }
+            GroupBox("Gemini Notebook") {
+                VStack(alignment: .leading, spacing: 12) {
+                    TextField("Notebook name", text: $notebookName)
+                    TextField("Notebook URL (optional)", text: $notebookURL)
+                    HStack {
+                        Button("Prepare link in Gemini") { prepareLink() }.disabled(!valid)
+                        if let url = URL(string: notebookURL), !notebookURL.isEmpty {
+                            Link("Open notebook", destination: url)
+                        }
+                    }
+                    Text("This opens Gemini and copies the exact instruction that adds this Drive source to the selected notebook. Your Google password is never stored by Peperete.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }.padding(8)
+            }
+            status
+            Spacer()
+        }.padding(24).frame(width: 650, height: 500)
+    }
+
+    private var valid: Bool {
+        !folderPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !fileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !notebookName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    @ViewBuilder private var status: some View {
+        if let publication = model.publications[board.id] {
+            if let error = publication.error {
+                Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            } else {
+                Label("Documentation is up to date", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+            }
+        } else if board.documentation == nil {
+            Label("Not linked yet", systemImage: "circle.dashed").foregroundStyle(.secondary)
+        }
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
+        panel.canCreateDirectories = true; panel.allowsMultipleSelection = false
+        panel.message = "Choose a folder synchronized by Google Drive."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        folderPath = url.path
+    }
+
+    private func save() {
+        guard valid else { return }
+        let settings = BoardDocumentation(enabled: enabled,
+            folderPath: folderPath.trimmingCharacters(in: .whitespacesAndNewlines),
+            fileName: fileName.trimmingCharacters(in: .whitespacesAndNewlines),
+            notebookName: notebookName.trimmingCharacters(in: .whitespacesAndNewlines),
+            notebookURL: notebookURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : notebookURL.trimmingCharacters(in: .whitespacesAndNewlines))
+        model.change { db in
+            guard let index = db.boards.firstIndex(where: { $0.id == board.id }) else { return }
+            db.boards[index].documentation = settings
+        }
+        model.publishDocumentation()
+    }
+
+    private func prepareLink() {
+        save()
+        let prompt = "@Gemini Notebook Add the Google Drive file ‘\(fileName)’ as a source to my notebook ‘\(notebookName)’. Confirm the notebook and source names when complete."
+        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(prompt, forType: .string)
+        NSWorkspace.shared.open(URL(string: "https://gemini.google.com/app")!)
     }
 }
 

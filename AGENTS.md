@@ -7,7 +7,8 @@ This is a private, local macOS board with a public-source-ready codebase.
 - Store mutations must lock, re-read the latest file, validate, back up, and save atomically.
 - Real user data belongs outside this repository or in ignored private/. Never commit it.
 - Run swift test for storage/CLI changes and make app for SwiftUI or widget changes.
-- No cloud account, telemetry, service credentials, or automatic sync.
+- No Peperete cloud account, telemetry, or bundled service credentials. Documentation sync is optional and one-way through a user-selected Google Drive folder.
+- Keep Peperete authoritative. Never ingest Notebook content back into boards automatically.
 - Prefer the local peperete command for ticket management after migration, rather than Trello.
 - The CLI is at .build/release/peperete after make build; use its absolute path from other folders.
 - Begin with doctor, boards and columns. Use card IDs for get/update/move/complete/archive.

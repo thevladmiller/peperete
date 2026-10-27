@@ -33,9 +33,11 @@ public struct Store: Sendable {
     }
     public func read() throws -> Database { try locked { try readUnlocked() } }
     @discardableResult public func update<T>(_ mutation: (inout Database) throws -> T) throws -> T {
-        try locked {
+        let (result, saved): (T, Database) = try locked {
             var db = try readUnlocked()
+            let before = db
             let result = try mutation(&db)
+            db.recordChanges(from: before)
             try db.validate()
             if FileManager.default.fileExists(atPath: file.path) {
                 let backups = directory.appendingPathComponent("Backups", isDirectory: true)
@@ -46,8 +48,12 @@ public struct Store: Sendable {
             db.revision += 1
             try Self.encoder().encode(db).write(to: file, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
-            return result
+            return (result, db)
         }
+        #if !PEPERETE_WIDGET
+        _ = DocumentationPublisher.publish(saved)
+        #endif
+        return result
     }
     public func export(to url: URL) throws { try Self.encoder().encode(read()).write(to: url, options: .atomic) }
     @discardableResult public func importFile(_ url: URL) throws -> Int {

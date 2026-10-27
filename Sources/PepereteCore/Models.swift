@@ -3,7 +3,33 @@ import Foundation
 public struct Board: Codable, Identifiable, Equatable, Sendable {
     public var id: String
     public var title: String
-    public init(id: String = UUID().uuidString, title: String) { self.id = id; self.title = title }
+    public var documentation: BoardDocumentation?
+    public init(id: String = UUID().uuidString, title: String, documentation: BoardDocumentation? = nil) {
+        self.id = id; self.title = title; self.documentation = documentation
+    }
+}
+
+public struct BoardDocumentation: Codable, Equatable, Sendable {
+    public var enabled: Bool
+    public var folderPath: String
+    public var fileName: String
+    public var notebookName: String
+    public var notebookURL: String?
+    public init(enabled: Bool = true, folderPath: String, fileName: String, notebookName: String, notebookURL: String? = nil) {
+        self.enabled = enabled; self.folderPath = folderPath; self.fileName = fileName
+        self.notebookName = notebookName; self.notebookURL = notebookURL
+    }
+}
+
+public struct Activity: Codable, Identifiable, Equatable, Sendable {
+    public var id: String
+    public var boardID: String
+    public var cardID: String?
+    public var summary: String
+    public var occurredAt: Date
+    public init(id: String = UUID().uuidString, boardID: String, cardID: String? = nil, summary: String, occurredAt: Date = Date()) {
+        self.id = id; self.boardID = boardID; self.cardID = cardID; self.summary = summary; self.occurredAt = occurredAt
+    }
 }
 
 public struct Column: Codable, Identifiable, Equatable, Sendable {
@@ -42,6 +68,7 @@ public struct Database: Codable, Equatable, Sendable {
     public var boards: [Board] = []
     public var columns: [Column] = []
     public var cards: [Card] = []
+    public var activities: [Activity]?
     public init() {}
     public func columns(in boardID: String) -> [Column] {
         columns.filter { $0.boardID == boardID }.sorted { $0.position < $1.position }
@@ -56,11 +83,14 @@ public struct Database: Codable, Equatable, Sendable {
         let boardIDs = Set(boards.map(\.id)), columnIDs = Set(columns.map(\.id))
         guard columns.allSatisfy({ boardIDs.contains($0.boardID) }), cards.allSatisfy({ columnIDs.contains($0.columnID) })
         else { throw StoreError.invalid("A card or column has a missing parent.") }
+        guard (activities ?? []).allSatisfy({ boardIDs.contains($0.boardID) })
+        else { throw StoreError.invalid("An activity has a missing board.") }
         guard boards.allSatisfy({ !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
               columns.allSatisfy({ !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.position.isFinite }),
               cards.allSatisfy({ !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.position.isFinite })
         else { throw StoreError.invalid("Titles cannot be empty and positions must be finite.") }
     }
+    public var activityLog: [Activity] { activities ?? [] }
     @discardableResult public mutating func addBoard(title: String) -> Board {
         let board = Board(title: title); boards.append(board)
         for (i, name) in ["To do", "Doing", "Done"].enumerated() {

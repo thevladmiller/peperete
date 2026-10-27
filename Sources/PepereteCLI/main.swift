@@ -18,6 +18,9 @@ Usage: peperete COMMAND [arguments]
   move CARD_ID COLUMN_ID [BEFORE_ID]     Move/reorder card
   complete CARD_ID true|false           Mark complete/incomplete
   archive CARD_ID true|false            Archive/restore card
+  documentation BOARD_ID FOLDER NOTEBOOK [NOTEBOOK_URL]
+                                       Publish a board source into a Drive folder
+  publish                              Refresh all enabled documentation sources
   import FILE                          Add missing IDs from Peperete export
   export FILE                          Export full database
   dump                                 Read full database as JSON
@@ -92,6 +95,17 @@ func run() throws {
     case "move":
         let id = try arg(1), columnID = try arg(2), before = args.count > 3 ? args[3] : nil
         try store.update { try $0.move(cardID: id, to: columnID, before: before) }; try output(["moved": id, "columnID": columnID])
+    case "documentation":
+        let boardID = try arg(1), folder = try arg(2), notebook = try arg(3), url = args.count > 4 ? args[4] : nil
+        let board = try store.update { db -> Board in
+            guard let index = db.boards.firstIndex(where: { $0.id == boardID }) else { throw StoreError.invalid("Board not found.") }
+            db.boards[index].documentation = BoardDocumentation(folderPath: folder,
+                fileName: DocumentationPublisher.suggestedFileName(for: db.boards[index]), notebookName: notebook, notebookURL: url)
+            return db.boards[index]
+        }
+        try output(board)
+    case "publish":
+        try output(DocumentationPublisher.publish(store.read()).map { ["boardID": $0.boardID, "file": $0.file.path, "error": $0.error ?? ""] })
     case "export": let path = try arg(1); try store.export(to: URL(fileURLWithPath: path)); try output(["exported": path])
     case "import": let path = try arg(1); try output(["importedCards": store.importFile(URL(fileURLWithPath: path))])
     default: throw StoreError.invalid("Unknown command: \(command). Run peperete --help.")
