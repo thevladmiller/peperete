@@ -19,10 +19,13 @@ def quoted(value):
 core = sorted(root.glob('Sources/PepereteCore/*.swift'))
 app = sorted(root.glob('Sources/PepereteApp/*.swift'))
 widget = sorted(root.glob('Sources/PepereteWidget/*.swift'))
+asset_catalog = root / 'Assets/Assets.xcassets'
 refs = {}
 for file in core + app + widget:
     relative = str(file.relative_to(root))
     refs[file] = add(relative, '{ isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ' + quoted(relative) + '; sourceTree = "<group>"; }')
+asset_relative = str(asset_catalog.relative_to(root))
+asset_ref = add(asset_relative, '{ isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = ' + quoted(asset_relative) + '; sourceTree = "<group>"; }')
 
 products = []
 targets = []
@@ -47,6 +50,8 @@ for name, files, ext, product_type, info in [
     phases = [source_phase, frameworks]
     dependencies = []
     if name == 'Peperete':
+        asset_build = add('app-assets-build', '{ isa = PBXBuildFile; fileRef = ' + asset_ref + '; }')
+        phases.append(add('app-resources', '{ isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (' + asset_build + '); runOnlyForDeploymentPostprocessing = 0; }'))
         embedded = add('embed-widget-file', '{ isa = PBXBuildFile; fileRef = ' + ident('PepereteWidget-product') + '; settings = { ATTRIBUTES = (RemoveHeadersOnCopy); }; }')
         phases.append(add('embed-widget', '{ isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (' + embedded + '); name = "Embed App Extensions"; runOnlyForDeploymentPostprocessing = 0; }'))
         proxy = add('widget-proxy', '{ isa = PBXContainerItemProxy; containerPortal = ' + ident('project') + '; proxyType = 1; remoteGlobalIDString = ' + ident('PepereteWidget-target') + '; remoteInfo = PepereteWidget; }')
@@ -54,6 +59,7 @@ for name, files, ext, product_type, info in [
     target_configs = []
     for conf in ['Debug', 'Release']:
         settings = f'PRODUCT_NAME = {name}; PRODUCT_BUNDLE_IDENTIFIER = local.peperete' + ('.widget' if ext == 'appex' else '') + f'; INFOPLIST_FILE = Config/{info}-Info.plist; GENERATE_INFOPLIST_FILE = NO; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks";'
+        if ext == 'app': settings += ' ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;'
         if ext == 'appex': settings += ' APPLICATION_EXTENSION_API_ONLY = YES; SKIP_INSTALL = YES; ENABLE_APP_SANDBOX = YES; CODE_SIGN_ENTITLEMENTS = Config/Widget.entitlements; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) PEPERETE_WIDGET";'
         settings += ' SWIFT_OPTIMIZATION_LEVEL = ' + ('"-Onone"' if conf == 'Debug' else '"-O"') + ';'
         target_configs.append(add(name + '-' + conf, '{ isa = XCBuildConfiguration; name = ' + conf + '; buildSettings = { ' + settings + ' }; }'))
@@ -61,7 +67,7 @@ for name, files, ext, product_type, info in [
     targets.append(add(name + '-target', '{ isa = PBXNativeTarget; buildConfigurationList = ' + config_list + '; buildPhases = ' + array(phases) + '; buildRules = (); dependencies = ' + array(dependencies) + '; name = ' + name + '; productName = ' + name + '; productReference = ' + product + '; productType = ' + quoted(product_type) + '; }'))
 
 product_group = add('products', '{ isa = PBXGroup; children = ' + array(products) + '; name = Products; sourceTree = "<group>"; }')
-main_group = add('main-group', '{ isa = PBXGroup; children = ' + array(list(refs.values()) + [product_group]) + '; sourceTree = "<group>"; }')
+main_group = add('main-group', '{ isa = PBXGroup; children = ' + array(list(refs.values()) + [asset_ref, product_group]) + '; sourceTree = "<group>"; }')
 project = add('project', '{ isa = PBXProject; attributes = { LastUpgradeCheck = 2700; }; buildConfigurationList = ' + project_config + '; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = ' + main_group + '; productRefGroup = ' + product_group + '; projectDirPath = ""; projectRoot = ""; targets = ' + array(targets) + '; }')
 folder = root / 'Peperete.xcodeproj'
 folder.mkdir(exist_ok=True)
